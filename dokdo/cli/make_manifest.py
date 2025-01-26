@@ -1,35 +1,45 @@
 import os
+import re
 from pathlib import Path
+
+def get_sample_id(filename):
+    """
+    ファイル名から拡張子や末尾の _R1_001 / _R2_001,
+    さらにオプションの _L<数字>, _S<数字> を取り除き，
+    残った文字列をサンプルIDとして返す．
+    """
+    # 拡張子(.fastq / .fastq.gz / .fq / .fq.gz)を除去
+    basename = re.sub(r'\.(?:fastq|fq)(?:\.gz)?$', '', filename)
+
+    # 末尾の '_R1_001' または '_R2_001' を除去
+    basename = re.sub(r'_R[12]_001$', '', basename)
+
+    # オプションの '_L<数字>' があれば除去 (例: _L001)
+    basename = re.sub(r'_L\d+$', '', basename)
+
+    # オプションの '_S<数字>' があれば除去 (例: _S23)
+    basename = re.sub(r'_S\d+$', '', basename)
+
+    return basename
 
 def make_manifest(fastq_dir, output_file):
     """
-    Create a manifest file (.tsv) from a directory containing FASTQ files.
-
-    This command assumes that FASTQ filenames end with a suffix such as
-    '_S0_R1_001.fastq' or '_S14_R2_001.fastq'. The word before the
-    third-to-last underscore ('_') will be used as sample ID. For example, a
-    file named 'EXAMPLE_S1_R1_001.fastq.gz' will set 'EXAMPLE' as sample ID.
-    Undertermined reads (e.g. 'Undetermined_S0_R1_001.fastq') will not be
-    included in the output file.
-
-    Parameters
-    ----------
-    fastq_dir : str
-        Directory containing input FASTQ files.
-    output_file : str
-        Manifest file.
+    ディレクトリに含まれるFASTQファイルからマニフェスト(tsv)を作成する．
+    Undeterminedが含まれるファイルは除外する．
     """
     fastq_dir = Path(fastq_dir).resolve()
-
     files = {}
 
     for r, d, f in os.walk(fastq_dir):
         for x in f:
-            name = '_'.join(x.split('_')[:-3])
-
+            # Undeterminedを含むファイルは除外
             if 'Undetermined' in x:
                 continue
 
+            # サンプルIDを取得
+            name = get_sample_id(x)
+
+            # R1 / R2 に応じて辞書に格納
             if '_R1_001.fastq' in x:
                 if name not in files:
                     files[name] = ['', '']
@@ -39,13 +49,14 @@ def make_manifest(fastq_dir, output_file):
                     files[name] = ['', '']
                 files[name][1] = f"{r}/{x}"
             else:
+                # それ以外は特に処理しない
                 pass
 
-    with open(output_file, 'w') as f:
-        headers = ['sample-id', 'forward-absolute-filepath',
-                   'reverse-absolute-filepath']
-        f.write('\t'.join(headers) + '\n')
+    # ファイル書き込み
+    with open(output_file, 'w') as of:
+        headers = ['sample-id', 'forward-absolute-filepath', 'reverse-absolute-filepath']
+        of.write('\t'.join(headers) + '\n')
 
         for name in sorted(files):
             fields = [name, files[name][0], files[name][1]]
-            f.write('\t'.join(fields) + '\n')
+            of.write('\t'.join(fields) + '\n')
